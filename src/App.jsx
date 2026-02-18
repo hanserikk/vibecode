@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import confetti from 'canvas-confetti';
 
 function App() {
   const [formData, setFormData] = useState({
@@ -7,155 +8,238 @@ function App() {
     skills: '',
     hobbies: ''
   });
-  const [ideas, setIdeas] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [gameState, setGameState] = useState('input'); // input, loading, playing
+  const [cards, setCards] = useState([]);
   const [error, setError] = useState(null);
+  const [gameResult, setGameResult] = useState(null); // 'win', 'lose', or null
+
+  const triggerConfetti = () => {
+    const duration = 3000;
+    const end = Date.now() + duration;
+
+    (function frame() {
+      confetti({
+        particleCount: 5,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0 },
+        colors: ['#FFD700', '#FFA500', '#0071e3', '#ffffff']
+      });
+      confetti({
+        particleCount: 5,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1 },
+        colors: ['#FFD700', '#FFA500', '#0071e3', '#ffffff']
+      });
+
+      if (Date.now() < end) {
+        requestAnimationFrame(frame);
+      }
+    }());
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setIdeas(null);
+    setGameState('loading');
+    setCards([]);
     setError(null);
+    setGameResult(null);
 
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-      // Using Gemini 3 Pro - the future flagship model (Projected for 2026 availability)
-      const model = genAI.getGenerativeModel({ model: "gemini-3-pro" });
+      // Switching to Gemini 2.0 Flash - The most stable model currently
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-001" });
 
       const prompt = `
 **Role:**
-You are a world-class Venture Capitalist and Visionary Startup Founder known for spotting "Unicorn" opportunities (startups with $1B+ potential). Your specialty is finding non-obvious intersections between a founder's personal traits and massive market gaps.
-
-**Task:**
-Analyze the user's input data:
-1. **Interests:** ${formData.interests}
-2. **Skills:** ${formData.skills}
-3. **Hobbies:** ${formData.hobbies}
+You are a Startup Generator Game Engine.
+Create 3 Startup Ideas based on these inputs:
+*   **Interests:** ${formData.interests}
+*   **Skills:** ${formData.skills}
+*   **Hobbies:** ${formData.hobbies}
 
 **Objective:**
-Generate 3 distinct, high-growth startup ideas that synthesize these three areas. Do not generate small business ideas (like a consulting firm or a local shop). Generate scalable, "500x potential" technology or platform plays.
+Generate a JSON object with a single array \`game_cards\` containing exactly 3 items:
+1.  **The Unicorn:** One GENUINE, serious, billion-dollar idea.
+    *   \`type\`: "unicorn"
+    *   \`valuation\`: "$1 Billion+"
+2.  **Dogshit #1:** One ABSOLUTELY TERRIBLE, satirical idea.
+    *   \`type\`: "dogshit"
+    *   \`valuation\`: "$5"
+3.  **Dogshit #2:** Another TERRIBLE, satirical idea.
+    *   \`type\`: "dogshit"
+    *   \`valuation\`: "A half-eaten sandwich"
 
-**Guidelines for Idea Generation:**
-* **The Intersection:** Look for the "Blue Ocean." How can a specific skill (e.g., Coding) apply to a hobby (e.g., Gardening) in a way that disrupts the industry?
-* **Scalability:** The idea must be software-based, a platform, or a high-tech product that can scale globally.
-* **Differentiation:** Avoid generic ideas. Think weird, contrarian, and visionary.
+**Card Structure:**
+{
+    "title": "Name",
+    "pitch": "Short pitch",
+    "valuation": "Value",
+    "type": "unicorn" | "dogshit"
+}
 
-**Output Format:**
-Please respond in the same language as the user's input (Estonian). 
-
-IMPORTANT: Return functionality strictly as a JSON array with the following keys for each idea: "title", "pitch", "concept", "monetization", "mvp".
-Do not use Markdown code blocks.
-
-Example structure:
-[
-  {
-    "title": "Startup Name",
-    "pitch": "The Unicorn Pitch",
-    "concept": "The Core Concept",
-    "monetization": "Monetization details",
-    "mvp": "MVP Strategy"
-  }
-]
+**Output:**
+Return ONLY valid JSON.
         `;
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
 
-      // Clean up markdown code blocks if present
       const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const ideasData = JSON.parse(jsonString);
+      const data = JSON.parse(jsonString);
 
-      setIdeas(ideasData);
+      // Shuffle the cards
+      let shuffled = [...data.game_cards];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+
+      // Add verified state to each card
+      const playableCards = shuffled.map(card => ({
+        ...card,
+        revealed: false
+      }));
+
+      setCards(playableCards);
+      setGameState('playing');
+
     } catch (err) {
       console.error("API Error:", err);
-      setError(`Viga: ${err.message || err.toString()}\n\nKontrolli konsooli detailideks.`);
+      setError(`Error: ${err.message || err.toString()}`);
+      setGameState('input');
 
-      // Fallback for demo if API fails/key missing
       if (!import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY === 'YOUR_API_KEY_HERE') {
-        setError("Palun lisa .env.local faili kehtiv VITE_GEMINI_API_KEY!");
+        setError("Please add a valid VITE_GEMINI_API_KEY to .env.local!");
       }
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const handleCardClick = (index) => {
+    if (cards[0].revealed) return; // Game already over
+
+    // Reveal ALL cards
+    const newCards = cards.map(c => ({ ...c, revealed: true }));
+    setCards(newCards);
+
+    const clickedCard = cards[index];
+
+    if (clickedCard.type === 'unicorn') {
+      setGameResult('win');
+      triggerConfetti();
+    } else {
+      setGameResult('lose');
+    }
+  };
+
+  const resetGame = () => {
+    setGameState('input');
+    setCards([]);
+    setGameResult(null);
+    setFormData({ interests: '', skills: '', hobbies: '' });
   };
 
   return (
     <div className="container">
       <h1>IDEAVIBE</h1>
-      <p className="subtitle">Loo järgmine ükssarvik. 500x potentsiaal.</p>
+      <p className="subtitle">Pick the Unicorn. Avoid the Dogshit. 🦄 vs 💩</p>
 
-      <div className="card">
-        <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <label htmlFor="interests">Huvid (Interests)</label>
-            <input
-              type="text"
-              id="interests"
-              placeholder="Nt. Tehnoloogia, Rahandus, Jätkusuutlikkus..."
-              value={formData.interests}
-              onChange={(e) => setFormData({ ...formData, interests: e.target.value })}
-              required
-            />
-          </div>
+      {gameState === 'input' && (
+        <div className="card input-card">
+          <form onSubmit={handleSubmit}>
+            <div className="input-group">
+              <label htmlFor="interests">Interests</label>
+              <input
+                type="text"
+                id="interests"
+                placeholder="e.g. Crypto, AI, Space..."
+                value={formData.interests}
+                onChange={(e) => setFormData({ ...formData, interests: e.target.value })}
+                required
+              />
+            </div>
 
-          <div className="input-group">
-            <label htmlFor="skills">Oskused (Skills)</label>
-            <input
-              type="text"
-              id="skills"
-              placeholder="Nt. Programmeerimine, Turundus, Disain..."
-              value={formData.skills}
-              onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
-              required
-            />
-          </div>
+            <div className="input-group">
+              <label htmlFor="skills">Skills</label>
+              <input
+                type="text"
+                id="skills"
+                placeholder="e.g. Coding, Sales, Meme-making..."
+                value={formData.skills}
+                onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
+                required
+              />
+            </div>
 
-          <div className="input-group">
-            <label htmlFor="hobbies">Hobid (Hobbies)</label>
-            <input
-              type="text"
-              id="hobbies"
-              placeholder="Nt. Matkamine, Lugemine, Kokkamine..."
-              value={formData.hobbies}
-              onChange={(e) => setFormData({ ...formData, hobbies: e.target.value })}
-              required
-            />
-          </div>
+            <div className="input-group">
+              <label htmlFor="hobbies">Hobbies</label>
+              <input
+                type="text"
+                id="hobbies"
+                placeholder="e.g. Surfing, Chess, Sleeping..."
+                value={formData.hobbies}
+                onChange={(e) => setFormData({ ...formData, hobbies: e.target.value })}
+                required
+              />
+            </div>
 
-          <button type="submit" className="primary-btn" disabled={loading}>
-            {loading ? 'GENEREERIN...' : 'GENEREERI IDEED'}
-          </button>
-        </form>
-      </div>
+            <button type="submit" className="primary-btn">
+              DEAL CARDS
+            </button>
+          </form>
+          {error && <div className="error-msg">{error}</div>}
+        </div>
+      )}
 
-      {loading && (
+      {gameState === 'loading' && (
         <div className="loading-container">
           <div className="spinner"></div>
-          <p style={{ marginTop: '20px', color: '#86868b' }}>Analüüsin profiili... Otsin 500x potentsiaali...</p>
+          <p>Shuffling the deck... 🃏</p>
         </div>
       )}
 
-      {error && (
-        <div style={{ color: 'red', textAlign: 'center', marginTop: '20px', whiteSpace: 'pre-wrap' }}>
-          {error}
-        </div>
-      )}
-
-      {ideas && (
-        <div className="results-section">
-          <h2 className="results-header">Sinu Sobivaimad Startupid</h2>
-          {ideas.map((idea, index) => (
-            <div key={index} className="idea-card">
-              <div className="idea-title">{idea.title}</div>
-              <div className="idea-desc"><strong>🦄 Pitch:</strong> {idea.pitch}</div>
-              <div className="idea-detail">
-                <p><strong>💡 Kontseptsioon:</strong> {idea.concept}</p>
-                <p><strong>💰 Monetiseerimine:</strong> {idea.monetization}</p>
-                <p><strong>🛠 MVP:</strong> {idea.mvp}</p>
+      {gameState === 'playing' && (
+        <div className="game-board-container">
+          <div className={`cards-hand ${gameResult ? 'game-over' : ''}`}>
+            {cards.map((card, index) => (
+              <div
+                key={index}
+                className={`game-card ${card.revealed ? 'revealed' : ''} ${card.revealed ? card.type : ''} card-${index}`}
+                onClick={() => handleCardClick(index)}
+                style={{ '--i': index }}
+              >
+                <div className="card-inner">
+                  <div className="card-front">
+                    <div className="card-pattern"></div>
+                    <div className="card-logo">🦄</div>
+                  </div>
+                  <div className="card-back">
+                    <div className="result-icon">
+                      {card.type === 'unicorn' ? '🦄' : '💩'}
+                    </div>
+                    <h3 className="card-title">{card.title}</h3>
+                    <p className="card-pitch">{card.pitch}</p>
+                    <div className="card-valuation">
+                      Valuation: <strong>{card.valuation}</strong>
+                    </div>
+                  </div>
+                </div>
               </div>
+            ))}
+          </div>
+
+          {gameResult && (
+            <div className="result-message">
+              {gameResult === 'win' ? (
+                <h2 className="win-text">YOU FOUND THE UNICORN! 🚀</h2>
+              ) : (
+                <h2 className="lose-text">YOU STEPPED IN IT! 💩</h2>
+              )}
+              <button className="reset-btn" onClick={resetGame}>Deal Again</button>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
