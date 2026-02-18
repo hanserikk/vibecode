@@ -19,8 +19,8 @@ function App() {
 
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-      // Using Gemini 1.5 Pro - the latest flagship model
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+      // Using Gemini 3 Pro - the future flagship model (Projected for 2026 availability)
+      const model = genAI.getGenerativeModel({ model: "gemini-3-pro" });
 
       const prompt = `
 **Role:**
